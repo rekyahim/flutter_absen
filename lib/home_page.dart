@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'config/api_config.dart';
 import 'login_page.dart';
+import 'package:geolocator/geolocator.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -15,7 +16,10 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String _userName = '';
   String _userId = '';
+  String _imageUrl = '';
+  String _unitKerja = '';
   bool _isLoading = true;
+  int _selectedIndex = 0; // Untuk mengatur tab aktif di Footer
 
   Map<String, dynamic> _absenToday = {};
   List<dynamic> _absenBefore = [];
@@ -34,6 +38,8 @@ class _HomePageState extends State<HomePage> {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     _userName = prefs.getString('userName') ?? 'User';
     _userId = prefs.getString('userId') ?? '';
+    _imageUrl = prefs.getString('imageUrl') ?? '';
+    _unitKerja = prefs.getString('unitKerja') ?? 'Bapenda Pekanbaru';
 
     if (_userId.isNotEmpty) {
       await _fetchAbsenData();
@@ -62,8 +68,6 @@ class _HomePageState extends State<HomePage> {
             _absenBefore = data['absenbefore'] ?? [];
           });
         }
-      } else {
-        print('Gagal mengambil data: ${response.statusCode}');
       }
     } catch (e) {
       print('Error fetch absen: $e');
@@ -74,15 +78,137 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _logout() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
+  Future<void> _prosesAbsensi() async {
+    // 1. Tampilkan Dialog Loading "Menunggu..."
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Text("Menunggu lokasi & server..."),
+            ],
+          ),
+        );
+      },
     );
+
+    try {
+      // 2. Cek apakah layanan GPS HP menyala
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        Navigator.pop(context); // Tutup loading
+        _showSnackBar(
+          'Layanan GPS tidak aktif. Mohon nyalakan GPS Anda.',
+          Colors.red,
+        );
+        return;
+      }
+
+      // 3. Cek Izin Aplikasi
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          Navigator.pop(context);
+          _showSnackBar('Izin lokasi ditolak oleh pengguna.', Colors.red);
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        Navigator.pop(context);
+        _showSnackBar(
+          'Izin lokasi diblokir permanen. Ubah di pengaturan HP.',
+          Colors.red,
+        );
+        return;
+      }
+
+      // 4. Ambil Kordinat Lokasi (Akurasi Tinggi)
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // 5. PENGECEKAN FAKE GPS SANGAT KETAT
+      if (position.isMocked) {
+        Navigator.pop(context); // Tutup loading
+        _showSnackBar(
+          'TERDETEKSI FAKE GPS! Mohon matikan aplikasi Fake GPS Anda untuk melakukan absensi.',
+          Colors.redAccent,
+        );
+        return;
+      }
+
+      // 6. Siapkan Data untuk dikirim ke Laravel
+      String basicAuth =
+          'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
+
+      var response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/doabsen'),
+        headers: {'authorization': basicAuth, 'Accept': 'application/json'},
+        body: {
+          'user_id': _userId,
+          'lat': position.latitude.toString(),
+          'lan': position.longitude
+              .toString(), // Sesuai dengan field di Laravel kamu
+        },
+      );
+
+      Navigator.pop(
+        context,
+      ); // Tutup dialog loading setelah dapat balasan server
+
+      // 7. Proses Balasan dari Server
+      var data = json.decode(response.body);
+
+      if (response.statusCode == 200 && data['status'] == 'success') {
+        _showSnackBar(data['message'] ?? 'Absen Berhasil', Colors.green);
+        _loadData(); // Refresh data riwayat absen otomatis
+      } else {
+        // Tampilkan pesan error dari backend (misal: "Anda Sedang Tidak pada posisi Kantor")
+        _showSnackBar(
+          data['message'] ?? 'Gagal melakukan absensi',
+          Colors.orange,
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // Tutup loading jika error sistem
+      _showSnackBar('Terjadi kesalahan sistem atau jaringan.', Colors.red);
+      print("Error Absen: $e");
+    }
+  }
+
+  // Fungsi helper untuk memunculkan pesan (SnackBar)
+  void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  // Fungsi untuk menangani klik pada Footer
+  void _onItemTapped(int index) {
+    if (index == 1) {
+      // Panggil fungsi absen saat tombol tengah diklik
+      _prosesAbsensi();
+    } else if (index == 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Halaman Profil sedang dalam pengembangan 🛠️'),
+        ),
+      );
+    } else {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
@@ -90,83 +216,75 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        toolbarHeight: 80, // Ditinggikan sedikit agar lega
+        backgroundColor: Colors.blueAccent,
+        elevation: 0,
+        title: Row(
           children: [
-            const Text(
-              'Beranda',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _userName,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _unitKerja,
+                    style: const TextStyle(fontSize: 14, color: Colors.white70),
+                  ),
+                ],
+              ),
             ),
-            Text(
-              _userName,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            const SizedBox(width: 10),
+            // Foto Profil
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.white,
+              // Jika URL foto ada dan valid, tampilkan fotonya. Jika tidak, pakai icon default.
+              backgroundImage:
+                  _imageUrl.isNotEmpty && _imageUrl.startsWith('http')
+                  ? NetworkImage(_imageUrl)
+                  : null,
+              child: _imageUrl.isEmpty || !_imageUrl.startsWith('http')
+                  ? const Icon(Icons.person, size: 30, color: Colors.blueAccent)
+                  : null,
             ),
           ],
         ),
-        backgroundColor: Colors.blueAccent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () {
-              // Dialog konfirmasi logout
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Konfirmasi Logout'),
-                  content: const Text('Apakah Anda yakin ingin keluar?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Batal'),
-                    ),
-                    TextButton(
-                      onPressed: _logout,
-                      child: const Text(
-                        'Ya, Keluar',
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadData, // Fitur tarik ke bawah untuk refresh
+              onRefresh: _loadData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- CARD ABSEN HARI INI ---
                     const Text(
                       'Absen Hari Ini',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 12),
                     _buildTodayCard(),
-
                     const SizedBox(height: 24),
-
-                    // --- LIST RIWAYAT ABSEN ---
                     Text(
                       'Riwayat ${_absenBefore.length} Hari Sebelumnya',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -178,8 +296,7 @@ class _HomePageState extends State<HomePage> {
                             ),
                           )
                         : ListView.builder(
-                            shrinkWrap:
-                                true, // Agar ListView bisa masuk di dalam SingleChildScrollView
+                            shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: _absenBefore.length,
                             itemBuilder: (context, index) {
@@ -191,10 +308,35 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+
+      // --- FOOTER NAVBAR ---
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(color: Colors.black12, blurRadius: 10, spreadRadius: 1),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          backgroundColor: Colors.white,
+          selectedItemColor: Colors.blueAccent,
+          unselectedItemColor: Colors.grey,
+          showUnselectedLabels: true,
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Beranda'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.fingerprint, size: 32),
+              label: 'Absen',
+            ),
+            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
+          ],
+        ),
+      ),
     );
   }
 
-  // Widget khusus untuk mendesain Card Absen Hari Ini
   Widget _buildTodayCard() {
     return Card(
       elevation: 4,
@@ -249,7 +391,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Widget khusus untuk History Card yang dinamis
   Widget _buildHistoryCard(Map<String, dynamic> item) {
     return Card(
       elevation: 2,
@@ -257,16 +398,15 @@ class _HomePageState extends State<HomePage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         leading: CircleAvatar(
-          // <-- Hapus kata 'const' di sini
-          backgroundColor: Colors.blue[100], // <-- Gunakan kurung siku
+          backgroundColor: Colors.blue[100],
           child: const Icon(
             Icons.calendar_today,
             color: Colors.blueAccent,
             size: 20,
-          ), // <-- Pindahkan 'const' ke Icon
+          ),
         ),
         title: Text(
-          item['tanggal'] ?? '-',
+          _formatTanggal(item['tanggal'] ?? '-'),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
@@ -293,7 +433,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Komponen kecil penyusun Card Hari Ini
   Widget _buildTimeColumn(String label, String time, IconData icon) {
     return Column(
       children: [
@@ -315,7 +454,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Komponen kecil penyusun detail History
   Widget _buildHistoryDetail(String label, String time) {
     return Column(
       children: [
@@ -327,5 +465,44 @@ class _HomePageState extends State<HomePage> {
         ),
       ],
     );
+  }
+
+  // Fungsi untuk mengubah format YYYY-MM-DD menjadi DD Bulan YYYY
+  // Fungsi untuk mengubah format YYYY-MM-DD menjadi DD Bulan YYYY
+  String _formatTanggal(String tanggalApi) {
+    if (tanggalApi == '-' || tanggalApi.isEmpty) {
+      return '-';
+    }
+
+    try {
+      List<String> parts = tanggalApi.split('-');
+      if (parts.length != 3) {
+        return tanggalApi; // Jaga-jaga kalau formatnya bukan YYYY-MM-DD
+      }
+
+      List<String> namaBulan = [
+        '',
+        'Januari',
+        'Februari',
+        'Maret',
+        'April',
+        'Mei',
+        'Juni',
+        'Juli',
+        'Agustus',
+        'September',
+        'Oktober',
+        'November',
+        'Desember',
+      ];
+
+      int bulanIndex = int.parse(parts[1]);
+      String tanggal = parts[2];
+      String tahun = parts[0];
+
+      return '$tanggal ${namaBulan[bulanIndex]} $tahun';
+    } catch (e) {
+      return tanggalApi; // Kembalikan ke format asli jika terjadi error parsing
+    }
   }
 }

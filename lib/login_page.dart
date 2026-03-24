@@ -55,6 +55,15 @@ class _LoginPageState extends State<LoginPage> {
         await prefs.setString('userId', data['data']['id'].toString());
         await prefs.setString('userName', data['data']['name']);
 
+        // --- TAMBAHKAN DUA BARIS INI ---
+        await prefs.setString('imageUrl', data['data']['imageurl'] ?? '');
+        // Karena di Postman sebelumnya tidak ada field unit_kerja, kita buat fallback-nya dulu
+        await prefs.setString(
+          'unitKerja',
+          data['data']['unit_kerja'] ?? 'Bapenda Pekanbaru',
+        );
+        // -------------------------------
+
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
