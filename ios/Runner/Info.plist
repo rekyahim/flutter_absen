@@ -66,5 +66,16 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    <string>Aplikasi Absensi Bapenda membutuhkan akses lokasi Anda untuk memverifikasi titik absensi di kantor.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Aplikasi Absensi Bapenda membutuhkan akses lokasi Anda untuk memverifikasi titik absensi di kantor.</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Aplikasi Absensi Bapenda membutuhkan akses galeri untuk mengubah foto profil Anda.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Aplikasi Absensi Bapenda membutuhkan akses kamera untuk mengambil foto profil Anda.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Aplikasi Absensi Bapenda membutuhkan akses mikrofon untuk keperluan kamera.</string>
 </dict>
 </plist>

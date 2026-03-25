@@ -44,9 +44,6 @@ class _LoginPageState extends State<LoginPage> {
         },
       );
 
-      print('Status Code: ${response.statusCode}');
-      print('Response Body: ${response.body}');
-
       // 3. Pengecekan Status Code agar lebih aman dari crash HTML
       if (response.statusCode >= 200 && response.statusCode < 500) {
         var data = json.decode(response.body);
@@ -80,7 +77,6 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      print('Error Login Asli: $e');
       _showErrorDialog('Terjadi kesalahan koneksi server atau jaringan.');
     } finally {
       setState(() {

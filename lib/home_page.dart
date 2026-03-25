@@ -6,11 +6,8 @@ import 'config/api_config.dart';
 import 'login_page.dart';
 import 'package:geolocator/geolocator.dart';
 
+// Import widget background dan halaman profil
 import 'widgets/background_wrapper.dart';
-// --- TAMBAHKAN IMPORT INI SESUAI LOKASI FILE KAMU ---
-// Asumsi kamu menyimpan file-nya di dalam folder 'widgets'
-
-// ---------------------------------------------------
 import 'profile_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -87,7 +84,6 @@ class _HomePageState extends State<HomePage> {
         _showSnackBar('Gagal mengambil data riwayat absen.', Colors.orange);
       }
     } catch (e) {
-      print('Error fetch absen: $e');
       if (mounted) {
         _showSnackBar('Terjadi kesalahan jaringan.', Colors.red);
       }
@@ -113,6 +109,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _prosesAbsensi() async {
+    // 1. Tampilkan Dialog Loading
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -130,17 +127,61 @@ class _HomePageState extends State<HomePage> {
     );
 
     try {
+      // 2. CEK GPS MATI ATAU NYALA
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (!mounted) return;
-        Navigator.pop(context);
-        _showSnackBar(
-          'Layanan GPS tidak aktif. Mohon nyalakan GPS Anda.',
-          Colors.red,
+        Navigator.pop(context); // Tutup loading dulu
+
+        // Langsung munculkan dialog untuk mengarahkan ke pengaturan GPS
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.location_off, color: Colors.red),
+                  SizedBox(width: 10),
+                  Text('GPS Mati'),
+                ],
+              ),
+              content: const Text(
+                'Sistem mendeteksi GPS Anda belum menyala. Mohon aktifkan GPS terlebih dahulu untuk melakukan absensi.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Tutup dialog jika batal
+                  },
+                  child: const Text(
+                    'Nanti Saja',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(context); // Tutup dialog
+                    // Perintah sakti untuk langsung membuka pengaturan lokasi HP
+                    await Geolocator.openLocationSettings();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Nyalakan GPS'),
+                ),
+              ],
+            );
+          },
         );
-        return;
+        return; // Hentikan proses absen sampai user menyalakan GPS
       }
 
+      // 3. Cek Izin Lokasi
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -161,22 +202,25 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
+      // 4. Ambil Koordinat
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
       );
 
+      // 5. Cek Fake GPS
       if (position.isMocked) {
         if (!mounted) return;
         Navigator.pop(context);
         _showSnackBar(
-          'TERDETEKSI FAKE GPS! Mohon matikan aplikasi Fake GPS Anda untuk melakukan absensi.',
-          Colors.redAccent,
+          'Yah, ketangkap basah deh pakai Fake GPS. 😅 Dimatiin dulu yuk mesin waktu-nya, baru coba absen lagi ya',
+          Colors.red,
         );
         return;
       }
 
+      // 6. Kirim ke Backend
       String basicAuth =
           'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
 
@@ -191,7 +235,7 @@ class _HomePageState extends State<HomePage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context); // Tutup loading
 
       if (response.statusCode >= 200 && response.statusCode < 500) {
         var data = json.decode(response.body);
@@ -212,7 +256,6 @@ class _HomePageState extends State<HomePage> {
         );
       }
     } catch (e) {
-      print("Error Absen: $e");
       if (!mounted) return;
 
       Navigator.pop(context);
@@ -233,19 +276,14 @@ class _HomePageState extends State<HomePage> {
 
   void _onItemTapped(int index) {
     if (index == 1) {
-      // Panggil fungsi absen saat tombol tengah diklik
       _prosesAbsensi();
     } else if (index == 2) {
-      // --- UBAH BAGIAN INI UNTUK BERPINDAH KE HALAMAN PROFIL ---
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const ProfilePage()),
       ).then((_) {
-        // Blok .then ini akan dijalankan ketika user kembali dari halaman Profil ke Beranda.
-        // Kita panggil _loadData() untuk memperbarui foto profil jika user baru saja menggantinya.
         _loadData();
       });
-      // ---------------------------------------------------------
     } else {
       setState(() {
         _selectedIndex = index;
@@ -302,18 +340,17 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
 
-      // PANGGIL WIDGET WRAPPER DARI FILE EXTERNAL
       body: BackgroundWrapper(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
                 onRefresh: _loadData,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
+                child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // --- BAGIAN ATAS (DIAM/TIDAK DI-SCROLL) ---
                       const Text(
                         'Absen Hari Ini',
                         style: TextStyle(
@@ -332,22 +369,22 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _absenBefore.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(20.0),
+
+                      // --- BAGIAN BAWAH (LIST YANG BISA DI-SCROLL) ---
+                      Expanded(
+                        child: _absenBefore.isEmpty
+                            ? const Center(
                                 child: Text('Belum ada riwayat absen.'),
+                              )
+                            : ListView.builder(
+                                physics: const BouncingScrollPhysics(),
+                                itemCount: _absenBefore.length,
+                                itemBuilder: (context, index) {
+                                  var item = _absenBefore[index];
+                                  return _buildHistoryCard(item);
+                                },
                               ),
-                            )
-                          : ListView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _absenBefore.length,
-                              itemBuilder: (context, index) {
-                                var item = _absenBefore[index];
-                                return _buildHistoryCard(item);
-                              },
-                            ),
+                      ),
                     ],
                   ),
                 ),
@@ -441,26 +478,38 @@ class _HomePageState extends State<HomePage> {
       margin: const EdgeInsets.only(bottom: 12),
       color: Colors.white.withValues(alpha: 0.95),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.blue[100],
-          child: const Icon(
-            Icons.calendar_today,
-            color: Colors.blueAccent,
-            size: 20,
-          ),
-        ),
-        title: Text(
-          _formatTanggal(item['tanggal'] ?? '-'),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 10.0,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Tanggal
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.blue[100],
+                  radius: 16,
+                  child: const Icon(
+                    Icons.calendar_today,
+                    color: Colors.blueAccent,
+                    size: 16,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _formatTanggal(item['tanggal'] ?? '-'),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
             ),
-            child: Row(
+
+            const Divider(height: 24, thickness: 1),
+
+            // Detail Jam Langsung Terlihat Melebar
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildHistoryDetail('Masuk', item['jam_masuk'] ?? '-'),
@@ -469,8 +518,8 @@ class _HomePageState extends State<HomePage> {
                 _buildHistoryDetail('Pulang', item['jam_pulang'] ?? '-'),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -111,7 +111,6 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
     } catch (e) {
-      print("Error Upload: $e");
       if (!mounted) return;
       _showSnackBar('Terjadi kesalahan jaringan.', Colors.red);
     } finally {
