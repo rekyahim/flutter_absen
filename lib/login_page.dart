@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_page.dart';
 import 'config/api_config.dart';
+import 'widgets/background_wrapper.dart'; // Sesuaikan dengan folder tempat kamu
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -35,8 +36,7 @@ class _LoginPageState extends State<LoginPage> {
         Uri.parse('${ApiConfig.baseUrl}/login'),
         headers: {
           'authorization': basicAuth,
-          'Accept':
-              'application/json', // Memaksa server membalas dengan JSON, bukan HTML
+          'Accept': 'application/json', // Memaksa server membalas dengan JSON
         },
         body: {
           'username': _usernameController.text,
@@ -47,34 +47,41 @@ class _LoginPageState extends State<LoginPage> {
       print('Status Code: ${response.statusCode}');
       print('Response Body: ${response.body}');
 
-      var data = json.decode(response.body);
+      // 3. Pengecekan Status Code agar lebih aman dari crash HTML
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        var data = json.decode(response.body);
 
-      if (response.statusCode == 200 && data['status'] == true) {
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('userId', data['data']['id'].toString());
-        await prefs.setString('userName', data['data']['name']);
+        // Jika status 200 dan 'status' dari JSON bernilai true
+        if (response.statusCode == 200 && data['status'] == true) {
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+          await prefs.setString('userId', data['data']['id'].toString());
+          await prefs.setString('userName', data['data']['name']);
+          await prefs.setString('imageUrl', data['data']['imageurl'] ?? '');
+          // Menggunakan 'unitkerja' sesuai dengan update Laravel terbaru
+          await prefs.setString(
+            'unitKerja',
+            data['data']['unitkerja'] ?? 'Bapenda Pekanbaru',
+          );
 
-        // --- TAMBAHKAN DUA BARIS INI ---
-        await prefs.setString('imageUrl', data['data']['imageurl'] ?? '');
-        // Karena di Postman sebelumnya tidak ada field unit_kerja, kita buat fallback-nya dulu
-        await prefs.setString(
-          'unitKerja',
-          data['data']['unit_kerja'] ?? 'Bapenda Pekanbaru',
-        );
-        // -------------------------------
-
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const HomePage()),
+          );
+        } else {
+          // Menangkap pesan error dari Laravel (salah password, akun nonaktif, dll)
+          _showErrorDialog(data['message'] ?? 'Login Gagal');
+        }
       } else {
-        _showErrorDialog(data['message'] ?? 'Login Gagal');
+        // Menangkap error fatal server (Status 500)
+        _showErrorDialog(
+          'Terjadi kesalahan fatal pada server (${response.statusCode}).',
+        );
       }
     } catch (e) {
       print('Error Login Asli: $e');
-      _showErrorDialog('Terjadi kesalahan koneksi server.');
+      _showErrorDialog('Terjadi kesalahan koneksi server atau jaringan.');
     } finally {
       setState(() {
         _isLoading = false;
@@ -92,90 +99,99 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.fingerprint, size: 80, color: Colors.blueAccent),
-              const SizedBox(height: 20),
-              const Text(
-                'Absensi Mobile',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+      // Cukup bungkus body dengan widget buatan kita tadi
+      body: BackgroundWrapper(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.fingerprint,
+                  size: 80,
+                  color: Colors.blueAccent,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _usernameController,
-                        decoration: InputDecoration(
-                          labelText: 'Username',
-                          prefixIcon: const Icon(Icons.person),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscureText,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureText
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscureText = !_obscureText;
-                              });
-                            },
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _login,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
+                const SizedBox(height: 20),
+                const Text(
+                  'Absensi Mobile',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 40),
+                Card(
+                  elevation: 4,
+                  // Agar Card sedikit transparan dan background terlihat tipis-tipis
+                  color: Colors.white.withValues(alpha: 0.9),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _usernameController,
+                          decoration: InputDecoration(
+                            labelText: 'Username',
+                            prefixIcon: const Icon(Icons.person),
+                            border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: _isLoading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                )
-                              : const Text(
-                                  'Login',
-                                  style: TextStyle(fontSize: 18),
-                                ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscureText,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureText
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscureText = !_obscureText;
+                                });
+                              },
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: _isLoading
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
+                                : const Text(
+                                    'Login',
+                                    style: TextStyle(fontSize: 18),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

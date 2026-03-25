@@ -52,13 +52,17 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _fetchAbsenData() async {
     try {
+      // Gunakan tanda kutip dua (") di dalam utf8.encode agar tidak bentrok dengan kutip satu di luar
       String basicAuth =
-          'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
+          'Basic ${base64Encode(utf8.encode("Absenbapenda:b2@Y@3SaN!"))}';
 
       var response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/getabsen/$_userId'),
         headers: {'authorization': basicAuth, 'Accept': 'application/json'},
       );
+
+      // Pastikan widget masih aktif sebelum mengubah tampilan
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         var data = json.decode(response.body);
@@ -68,14 +72,42 @@ class _HomePageState extends State<HomePage> {
             _absenBefore = data['absenbefore'] ?? [];
           });
         }
+      } else if (response.statusCode == 401) {
+        // Jika autentikasi API ditolak dari Laravel (Misal: Password API diubah)
+        _showSnackBar(
+          'Sesi ditolak oleh server. Silakan login ulang.',
+          Colors.red,
+        );
+        _logout(); // Paksa user keluar agar tidak stuck di halaman error
+      } else {
+        // Error lainnya (Server down, dsb)
+        _showSnackBar('Gagal mengambil data riwayat absen.', Colors.orange);
       }
     } catch (e) {
       print('Error fetch absen: $e');
+      if (mounted) {
+        _showSnackBar('Terjadi kesalahan jaringan.', Colors.red);
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _logout() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.clear(); // Hapus semua data sesi di HP
+
+    if (!mounted) return;
+
+    // Arahkan kembali ke halaman Login dan hapus riwayat navigasi
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+    );
   }
 
   Future<void> _prosesAbsensi() async {
@@ -100,6 +132,10 @@ class _HomePageState extends State<HomePage> {
       // 2. Cek apakah layanan GPS HP menyala
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
+        // --- TAMBAHKAN PENGECEKAN INI ---
+        // Cek apakah widget masih aktif sebelum menutup dialog loading
+        if (!mounted) return;
+        // --------------------------------
         Navigator.pop(context); // Tutup loading
         _showSnackBar(
           'Layanan GPS tidak aktif. Mohon nyalakan GPS Anda.',
@@ -113,12 +149,20 @@ class _HomePageState extends State<HomePage> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
+          // --- TAMBAHKAN PENGECEKAN INI ---
+          // Cek apakah widget masih aktif sebelum menutup dialog loading
+          if (!mounted) return;
+          // --------------------------------
           Navigator.pop(context);
           _showSnackBar('Izin lokasi ditolak oleh pengguna.', Colors.red);
           return;
         }
       }
       if (permission == LocationPermission.deniedForever) {
+        // --- TAMBAHKAN PENGECEKAN INI ---
+        // Cek apakah widget masih aktif sebelum menutup dialog loading
+        if (!mounted) return;
+        // --------------------------------
         Navigator.pop(context);
         _showSnackBar(
           'Izin lokasi diblokir permanen. Ubah di pengaturan HP.',
@@ -129,11 +173,17 @@ class _HomePageState extends State<HomePage> {
 
       // 4. Ambil Kordinat Lokasi (Akurasi Tinggi)
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
       // 5. PENGECEKAN FAKE GPS SANGAT KETAT
       if (position.isMocked) {
+        // --- TAMBAHKAN PENGECEKAN INI ---
+        // Cek apakah widget masih aktif sebelum menutup dialog loading
+        if (!mounted) return;
+        // --------------------------------
         Navigator.pop(context); // Tutup loading
         _showSnackBar(
           'TERDETEKSI FAKE GPS! Mohon matikan aplikasi Fake GPS Anda untuk melakukan absensi.',
@@ -156,28 +206,46 @@ class _HomePageState extends State<HomePage> {
               .toString(), // Sesuai dengan field di Laravel kamu
         },
       );
-
+      // --- TAMBAHKAN PENGECEKAN INI ---
+      // Cek apakah widget masih aktif sebelum menutup dialog loading
+      if (!mounted) return;
+      // --------------------------------
       Navigator.pop(
         context,
       ); // Tutup dialog loading setelah dapat balasan server
 
       // 7. Proses Balasan dari Server
-      var data = json.decode(response.body);
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        // Status 200 (Sukses) atau 400/401 (Validasi gagal dari Laravel) bentuknya tetap JSON
+        var data = json.decode(response.body);
 
-      if (response.statusCode == 200 && data['status'] == 'success') {
-        _showSnackBar(data['message'] ?? 'Absen Berhasil', Colors.green);
-        _loadData(); // Refresh data riwayat absen otomatis
+        if (response.statusCode == 200 && data['status'] == 'success') {
+          _showSnackBar(data['message'] ?? 'Absen Berhasil', Colors.green);
+          _loadData(); // Refresh data riwayat absen otomatis
+        } else {
+          // Pesan error dari backend (misal: "Hari ini libur", "Di luar radius", dll)
+          _showSnackBar(
+            data['message'] ?? 'Gagal melakukan absensi',
+            Colors.orange,
+          );
+        }
       } else {
-        // Tampilkan pesan error dari backend (misal: "Anda Sedang Tidak pada posisi Kantor")
+        // Status 500 ke atas (Error Fatal Server). Kita tidak decode JSON untuk menghindari crash.
         _showSnackBar(
-          data['message'] ?? 'Gagal melakukan absensi',
-          Colors.orange,
+          'Terjadi kesalahan fatal pada server (${response.statusCode}).',
+          Colors.red,
         );
       }
     } catch (e) {
+      print(
+        "Error Absen: $e",
+      ); // Pindahkan print ke atas agar tetap tercatat di log
+
+      // Cek apakah widget masih aktif sebelum menutup dialog
+      if (!mounted) return;
+
       Navigator.pop(context); // Tutup loading jika error sistem
       _showSnackBar('Terjadi kesalahan sistem atau jaringan.', Colors.red);
-      print("Error Absen: $e");
     }
   }
 
@@ -214,7 +282,9 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // 1. Warna dasar abu-abu muda agar saat gambar transparan, background tidak hitam
       backgroundColor: Colors.grey[100],
+
       appBar: AppBar(
         toolbarHeight: 80, // Ditinggikan sedikit agar lega
         backgroundColor: Colors.blueAccent,
@@ -260,58 +330,81 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Absen Hari Ini',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+
+      // --- AREA KONTEN & BACKGROUND BATIK ---
+      body: Container(
+        // Paksa Container memenuhi seluruh layar agar gambar tidak terpotong
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage(
+              'assets/images/bg-batik.png',
+            ), // Pastikan file gambar sesuai
+            fit: BoxFit.cover, // Membuat gambar menutupi seluruh layar
+            // Transparansi gambar (0.3 = 30%). Ubah angkanya jika ingin lebih tebal/tipis
+            colorFilter: ColorFilter.mode(
+              Colors.white.withValues(alpha: 0.06), // <-- Diubah di sini
+              BlendMode.dstATop,
+            ),
+          ),
+        ),
+
+        // Logika loading dan isi konten di atas background
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Absen Hari Ini',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildTodayCard(),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Riwayat ${_absenBefore.length} Hari Sebelumnya',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 12),
+                      _buildTodayCard(),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Riwayat ${_absenBefore.length} Hari Sebelumnya',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _absenBefore.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(20.0),
-                              child: Text('Belum ada riwayat absen.'),
+                      const SizedBox(height: 12),
+                      _absenBefore.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20.0),
+                                child: Text('Belum ada riwayat absen.'),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _absenBefore.length,
+                              itemBuilder: (context, index) {
+                                var item = _absenBefore[index];
+                                return _buildHistoryCard(item);
+                              },
                             ),
-                          )
-                        : ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _absenBefore.length,
-                            itemBuilder: (context, index) {
-                              var item = _absenBefore[index];
-                              return _buildHistoryCard(item);
-                            },
-                          ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
+      // --- AKHIR AREA KONTEN ---
 
       // --- FOOTER NAVBAR ---
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           boxShadow: [
             BoxShadow(color: Colors.black12, blurRadius: 10, spreadRadius: 1),
           ],
@@ -340,7 +433,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildTodayCard() {
     return Card(
       elevation: 4,
-      shadowColor: Colors.blue.withOpacity(0.3),
+      shadowColor: Colors.blue.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         decoration: BoxDecoration(
@@ -409,9 +502,9 @@ class _HomePageState extends State<HomePage> {
           _formatTanggal(item['tanggal'] ?? '-'),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text(
-          'Masuk: ${item['jam_masuk']} | Pulang: ${item['jam_pulang']}',
-        ),
+        // subtitle: Text(
+        //   'Masuk: ${item['jam_masuk']} | Pulang: ${item['jam_pulang']}',
+        // ),
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(
