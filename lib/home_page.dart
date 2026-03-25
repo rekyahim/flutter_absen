@@ -6,6 +6,13 @@ import 'config/api_config.dart';
 import 'login_page.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'widgets/background_wrapper.dart';
+// --- TAMBAHKAN IMPORT INI SESUAI LOKASI FILE KAMU ---
+// Asumsi kamu menyimpan file-nya di dalam folder 'widgets'
+
+// ---------------------------------------------------
+import 'profile_page.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -19,7 +26,7 @@ class _HomePageState extends State<HomePage> {
   String _imageUrl = '';
   String _unitKerja = '';
   bool _isLoading = true;
-  int _selectedIndex = 0; // Untuk mengatur tab aktif di Footer
+  int _selectedIndex = 0;
 
   Map<String, dynamic> _absenToday = {};
   List<dynamic> _absenBefore = [];
@@ -52,7 +59,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _fetchAbsenData() async {
     try {
-      // Gunakan tanda kutip dua (") di dalam utf8.encode agar tidak bentrok dengan kutip satu di luar
       String basicAuth =
           'Basic ${base64Encode(utf8.encode("Absenbapenda:b2@Y@3SaN!"))}';
 
@@ -61,7 +67,6 @@ class _HomePageState extends State<HomePage> {
         headers: {'authorization': basicAuth, 'Accept': 'application/json'},
       );
 
-      // Pastikan widget masih aktif sebelum mengubah tampilan
       if (!mounted) return;
 
       if (response.statusCode == 200) {
@@ -73,14 +78,12 @@ class _HomePageState extends State<HomePage> {
           });
         }
       } else if (response.statusCode == 401) {
-        // Jika autentikasi API ditolak dari Laravel (Misal: Password API diubah)
         _showSnackBar(
           'Sesi ditolak oleh server. Silakan login ulang.',
           Colors.red,
         );
-        _logout(); // Paksa user keluar agar tidak stuck di halaman error
+        _logout();
       } else {
-        // Error lainnya (Server down, dsb)
         _showSnackBar('Gagal mengambil data riwayat absen.', Colors.orange);
       }
     } catch (e) {
@@ -99,11 +102,10 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _logout() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.clear(); // Hapus semua data sesi di HP
+    await prefs.clear();
 
     if (!mounted) return;
 
-    // Arahkan kembali ke halaman Login dan hapus riwayat navigasi
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -111,7 +113,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _prosesAbsensi() async {
-    // 1. Tampilkan Dialog Loading "Menunggu..."
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -129,14 +130,10 @@ class _HomePageState extends State<HomePage> {
     );
 
     try {
-      // 2. Cek apakah layanan GPS HP menyala
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        // --- TAMBAHKAN PENGECEKAN INI ---
-        // Cek apakah widget masih aktif sebelum menutup dialog loading
         if (!mounted) return;
-        // --------------------------------
-        Navigator.pop(context); // Tutup loading
+        Navigator.pop(context);
         _showSnackBar(
           'Layanan GPS tidak aktif. Mohon nyalakan GPS Anda.',
           Colors.red,
@@ -144,25 +141,18 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // 3. Cek Izin Aplikasi
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          // --- TAMBAHKAN PENGECEKAN INI ---
-          // Cek apakah widget masih aktif sebelum menutup dialog loading
           if (!mounted) return;
-          // --------------------------------
           Navigator.pop(context);
           _showSnackBar('Izin lokasi ditolak oleh pengguna.', Colors.red);
           return;
         }
       }
       if (permission == LocationPermission.deniedForever) {
-        // --- TAMBAHKAN PENGECEKAN INI ---
-        // Cek apakah widget masih aktif sebelum menutup dialog loading
         if (!mounted) return;
-        // --------------------------------
         Navigator.pop(context);
         _showSnackBar(
           'Izin lokasi diblokir permanen. Ubah di pengaturan HP.',
@@ -171,20 +161,15 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // 4. Ambil Kordinat Lokasi (Akurasi Tinggi)
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
       );
 
-      // 5. PENGECEKAN FAKE GPS SANGAT KETAT
       if (position.isMocked) {
-        // --- TAMBAHKAN PENGECEKAN INI ---
-        // Cek apakah widget masih aktif sebelum menutup dialog loading
         if (!mounted) return;
-        // --------------------------------
-        Navigator.pop(context); // Tutup loading
+        Navigator.pop(context);
         _showSnackBar(
           'TERDETEKSI FAKE GPS! Mohon matikan aplikasi Fake GPS Anda untuk melakukan absensi.',
           Colors.redAccent,
@@ -192,7 +177,6 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // 6. Siapkan Data untuk dikirim ke Laravel
       String basicAuth =
           'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
 
@@ -202,54 +186,40 @@ class _HomePageState extends State<HomePage> {
         body: {
           'user_id': _userId,
           'lat': position.latitude.toString(),
-          'lan': position.longitude
-              .toString(), // Sesuai dengan field di Laravel kamu
+          'lan': position.longitude.toString(),
         },
       );
-      // --- TAMBAHKAN PENGECEKAN INI ---
-      // Cek apakah widget masih aktif sebelum menutup dialog loading
-      if (!mounted) return;
-      // --------------------------------
-      Navigator.pop(
-        context,
-      ); // Tutup dialog loading setelah dapat balasan server
 
-      // 7. Proses Balasan dari Server
+      if (!mounted) return;
+      Navigator.pop(context);
+
       if (response.statusCode >= 200 && response.statusCode < 500) {
-        // Status 200 (Sukses) atau 400/401 (Validasi gagal dari Laravel) bentuknya tetap JSON
         var data = json.decode(response.body);
 
         if (response.statusCode == 200 && data['status'] == 'success') {
           _showSnackBar(data['message'] ?? 'Absen Berhasil', Colors.green);
-          _loadData(); // Refresh data riwayat absen otomatis
+          _loadData();
         } else {
-          // Pesan error dari backend (misal: "Hari ini libur", "Di luar radius", dll)
           _showSnackBar(
             data['message'] ?? 'Gagal melakukan absensi',
             Colors.orange,
           );
         }
       } else {
-        // Status 500 ke atas (Error Fatal Server). Kita tidak decode JSON untuk menghindari crash.
         _showSnackBar(
           'Terjadi kesalahan fatal pada server (${response.statusCode}).',
           Colors.red,
         );
       }
     } catch (e) {
-      print(
-        "Error Absen: $e",
-      ); // Pindahkan print ke atas agar tetap tercatat di log
-
-      // Cek apakah widget masih aktif sebelum menutup dialog
+      print("Error Absen: $e");
       if (!mounted) return;
 
-      Navigator.pop(context); // Tutup loading jika error sistem
+      Navigator.pop(context);
       _showSnackBar('Terjadi kesalahan sistem atau jaringan.', Colors.red);
     }
   }
 
-  // Fungsi helper untuk memunculkan pesan (SnackBar)
   void _showSnackBar(String message, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -261,17 +231,21 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Fungsi untuk menangani klik pada Footer
   void _onItemTapped(int index) {
     if (index == 1) {
       // Panggil fungsi absen saat tombol tengah diklik
       _prosesAbsensi();
     } else if (index == 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Halaman Profil sedang dalam pengembangan 🛠️'),
-        ),
-      );
+      // --- UBAH BAGIAN INI UNTUK BERPINDAH KE HALAMAN PROFIL ---
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ProfilePage()),
+      ).then((_) {
+        // Blok .then ini akan dijalankan ketika user kembali dari halaman Profil ke Beranda.
+        // Kita panggil _loadData() untuk memperbarui foto profil jika user baru saja menggantinya.
+        _loadData();
+      });
+      // ---------------------------------------------------------
     } else {
       setState(() {
         _selectedIndex = index;
@@ -282,11 +256,10 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // 1. Warna dasar abu-abu muda agar saat gambar transparan, background tidak hitam
       backgroundColor: Colors.grey[100],
 
       appBar: AppBar(
-        toolbarHeight: 80, // Ditinggikan sedikit agar lega
+        toolbarHeight: 80,
         backgroundColor: Colors.blueAccent,
         elevation: 0,
         title: Row(
@@ -314,11 +287,9 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(width: 10),
-            // Foto Profil
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.white,
-              // Jika URL foto ada dan valid, tampilkan fotonya. Jika tidak, pakai icon default.
               backgroundImage:
                   _imageUrl.isNotEmpty && _imageUrl.startsWith('http')
                   ? NetworkImage(_imageUrl)
@@ -331,26 +302,8 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
 
-      // --- AREA KONTEN & BACKGROUND BATIK ---
-      body: Container(
-        // Paksa Container memenuhi seluruh layar agar gambar tidak terpotong
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage(
-              'assets/images/bg-batik.png',
-            ), // Pastikan file gambar sesuai
-            fit: BoxFit.cover, // Membuat gambar menutupi seluruh layar
-            // Transparansi gambar (0.3 = 30%). Ubah angkanya jika ingin lebih tebal/tipis
-            colorFilter: ColorFilter.mode(
-              Colors.white.withValues(alpha: 0.06), // <-- Diubah di sini
-              BlendMode.dstATop,
-            ),
-          ),
-        ),
-
-        // Logika loading dan isi konten di atas background
+      // PANGGIL WIDGET WRAPPER DARI FILE EXTERNAL
+      body: BackgroundWrapper(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
@@ -400,9 +353,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
       ),
-      // --- AKHIR AREA KONTEN ---
 
-      // --- FOOTER NAVBAR ---
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           boxShadow: [
@@ -488,6 +439,7 @@ class _HomePageState extends State<HomePage> {
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.white.withValues(alpha: 0.95),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         leading: CircleAvatar(
@@ -502,9 +454,6 @@ class _HomePageState extends State<HomePage> {
           _formatTanggal(item['tanggal'] ?? '-'),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        // subtitle: Text(
-        //   'Masuk: ${item['jam_masuk']} | Pulang: ${item['jam_pulang']}',
-        // ),
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(
@@ -560,19 +509,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Fungsi untuk mengubah format YYYY-MM-DD menjadi DD Bulan YYYY
-  // Fungsi untuk mengubah format YYYY-MM-DD menjadi DD Bulan YYYY
   String _formatTanggal(String tanggalApi) {
-    if (tanggalApi == '-' || tanggalApi.isEmpty) {
-      return '-';
-    }
-
+    if (tanggalApi == '-' || tanggalApi.isEmpty) return '-';
     try {
       List<String> parts = tanggalApi.split('-');
-      if (parts.length != 3) {
-        return tanggalApi; // Jaga-jaga kalau formatnya bukan YYYY-MM-DD
-      }
-
+      if (parts.length != 3) return tanggalApi;
       List<String> namaBulan = [
         '',
         'Januari',
@@ -588,14 +529,12 @@ class _HomePageState extends State<HomePage> {
         'November',
         'Desember',
       ];
-
       int bulanIndex = int.parse(parts[1]);
       String tanggal = parts[2];
       String tahun = parts[0];
-
       return '$tanggal ${namaBulan[bulanIndex]} $tahun';
     } catch (e) {
-      return tanggalApi; // Kembalikan ke format asli jika terjadi error parsing
+      return tanggalApi;
     }
   }
 }
