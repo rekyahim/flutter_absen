@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'config/api_config.dart';
 import 'widgets/background_wrapper.dart'; // Pastikan path ini benar
+import 'utils/network_utils.dart'; // Tambahkan baris ini
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -63,6 +64,19 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
+      // --- TAMBAHKAN PENGECEKAN INTERNET DI SINI ---
+      bool adaInternet = await NetworkUtils.hasInternet();
+      if (!mounted) return;
+
+      if (!adaInternet) {
+        _showSnackBar(
+          'Koneksi internet terputus. Gagal menyimpan foto profil.',
+          Colors.red,
+        );
+        return; // Hentikan proses upload
+      }
+      // ----------------------------------------------
+
       String basicAuth =
           'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
 

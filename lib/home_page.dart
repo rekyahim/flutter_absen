@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 // Import widget background dan halaman profil
 import 'widgets/background_wrapper.dart';
 import 'profile_page.dart';
+import 'utils/network_utils.dart'; // Sesuaikan lokasi foldernya
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -56,6 +57,19 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _fetchAbsenData() async {
     try {
+      // --- TAMBAHKAN PENGECEKAN INTERNET DI SINI ---
+      bool adaInternet = await NetworkUtils.hasInternet();
+      if (!mounted) return;
+
+      if (!adaInternet) {
+        _showSnackBar(
+          'Koneksi internet terputus. Gagal memuat riwayat absen.',
+          Colors.red,
+        );
+        return; // Hentikan proses fetch data
+      }
+      // ----------------------------------------------
+
       String basicAuth =
           'Basic ${base64Encode(utf8.encode("Absenbapenda:b2@Y@3SaN!"))}';
 
@@ -109,6 +123,19 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _prosesAbsensi() async {
+    bool adaInternet = await NetworkUtils.hasInternet();
+
+    // --- TAMBAHKAN BARIS PENJAGA INI DI SINI ---
+    if (!mounted) return;
+    // ------------------------------------------
+
+    if (!adaInternet) {
+      _showSnackBar(
+        'Koneksi internet terputus atau tidak stabil. Cek jaringan Anda ya!',
+        Colors.red,
+      );
+      return; // Hentikan proses
+    }
     // 1. Tampilkan Dialog Loading
     showDialog(
       context: context,

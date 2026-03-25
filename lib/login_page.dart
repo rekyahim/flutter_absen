@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'home_page.dart';
 import 'config/api_config.dart';
 import 'widgets/background_wrapper.dart'; // Sesuaikan dengan folder tempat kamu
+import 'utils/network_utils.dart'; // Tambahkan baris ini
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -27,6 +28,18 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
+      // --- TAMBAHKAN PENGECEKAN INTERNET DI SINI ---
+      bool adaInternet = await NetworkUtils.hasInternet();
+      if (!mounted) return; // Penjaga context
+
+      if (!adaInternet) {
+        _showErrorDialog(
+          'Koneksi internet terputus. Silakan cek jaringan Anda.',
+        );
+        return; // Hentikan proses login
+      }
+      // ----------------------------------------------
+
       // 1. Buat token Basic Auth dari Username dan Password API
       String basicAuth =
           'Basic ${base64Encode(utf8.encode('Absenbapenda:b2@Y@3SaN!'))}';
